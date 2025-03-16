@@ -3,7 +3,7 @@ import { Copy, RefreshCw } from 'lucide-react';
 
 // Listes enrichies pour la génération aléatoire
 const FIRST_NAMES = [
- 'Emma', 'Lucas', 'Léa', 'Hugo', 'Chloé', 'Louis', 'Jade', 'Gabriel', 'Louise', 'Jules',
+  'Emma', 'Lucas', 'Léa', 'Hugo', 'Chloé', 'Louis', 'Jade', 'Gabriel', 'Louise', 'Jules',
   'Alice', 'Arthur', 'Lina', 'Noah', 'Inès', 'Adam', 'Léna', 'Raphaël', 'Sarah', 'Ethan',
   'Mila', 'Paul', 'Julia', 'Nathan', 'Eva', 'Théo', 'Anna', 'Tom', 'Rose', 'Axel',
   'Camille', 'Maxime', 'Nina', 'Antoine', 'Luna', 'Enzo', 'Zoé', 'Léo', 'Sofia', 'Victor',
@@ -33,8 +33,6 @@ const FIRST_NAMES = [
   'Anis', 'Samira', 'Yacine', 'Fatou', 'Nabil', 'Amira', 'Hana', 'Mehdi', 'Nora', 'Idris',
   'Lamia', 'Soraya', 'Bachir', 'Fadwa', 'Reda', 'Nassima', 'Karim', 'Youssef', 'Latifa', 'Fouad',
   'Imran', 'Siham', 'Jawad', 'Safia', 'Amine', 'Rachid', 'Amina', 'Zakaria', 'Salma', 'Adil'
-];
-
 ];
 
 const LAST_NAMES = [
@@ -100,7 +98,7 @@ function generateSimplePassword() {
   return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
-function getRandomElement(array: string[]) {
+function getRandomElement<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
 
@@ -114,8 +112,12 @@ function generateGamingUsername() {
 }
 
 function CopyableField({ label, value }: { label: string; value: string }) {
-  const handleCopy = () => {
-    navigator.clipboard.writeText(value);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+    }
   };
 
   return (
