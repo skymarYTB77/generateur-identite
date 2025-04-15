@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Copy, RefreshCw, Save, Search, ChevronRight, ChevronLeft, Trash2, LogIn, LogOut } from 'lucide-react';
-import { collection, addDoc, query, orderBy, limit, getDocs, where, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, limit, getDocs, where, deleteDoc, doc, Timestamp } from 'firebase/firestore';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
 import toast, { Toaster } from 'react-hot-toast';
@@ -96,7 +96,6 @@ function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -105,7 +104,6 @@ function App() {
       } else {
         setSavedIdentities([]);
       }
-      setIsLoading(false);
     });
 
     return () => unsubscribe();
@@ -126,11 +124,14 @@ function App() {
         limit(10)
       );
       const querySnapshot = await getDocs(q);
-      const identities = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt.toDate()
-      })) as SavedIdentity[];
+      const identities = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(data.createdAt)
+        };
+      }) as SavedIdentity[];
       setSavedIdentities(identities);
     } catch (error) {
       console.error('Error loading identities:', error);
@@ -156,11 +157,14 @@ function App() {
         limit(10)
       );
       const querySnapshot = await getDocs(q);
-      const identities = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt.toDate()
-      })) as SavedIdentity[];
+      const identities = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(data.createdAt)
+        };
+      }) as SavedIdentity[];
       setSavedIdentities(identities);
     } catch (error) {
       console.error('Error searching identities:', error);
@@ -223,12 +227,9 @@ function App() {
       setEmail('');
       setPassword('');
       await loadRecentIdentities();
-    } catch (error: any) {
+    } catch (error) {
       console.error('Auth error:', error);
-      const errorMessage = error.code === 'auth/invalid-credential' 
-        ? 'Email ou mot de passe incorrect'
-        : 'Erreur lors de la connexion';
-      toast.error(errorMessage);
+      toast.error(isSignUp ? 'Erreur lors de la création du compte' : 'Erreur lors de la connexion');
     }
   };
 
@@ -266,14 +267,6 @@ function App() {
       setShowSidebar(false);
     }
   };
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-300/90 via-indigo-300/90 to-purple-400/90 animate-gradient flex items-center justify-center">
-        <div className="text-white text-xl">Chargement...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-300/90 via-indigo-300/90 to-purple-400/90 animate-gradient relative overflow-hidden">
