@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Copy, RefreshCw, Save, Search, ChevronRight, ChevronLeft, Trash2, LogIn, LogOut } from 'lucide-react';
-import { collection, addDoc, query, orderBy, limit, getDocs, where, deleteDoc, doc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, getDocs, where, deleteDoc, doc, Timestamp } from 'firebase/firestore';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
 import toast, { Toaster } from 'react-hot-toast';
@@ -87,7 +87,7 @@ function App() {
     }
   });
 
-  const [savedIdentities, setSavedIdentities] = useState<SavedIdentity[]>([]);
+  const [identities, setIdentities] = useState<SavedIdentity[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [saveName, setSaveName] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -100,18 +100,18 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        loadRecentIdentities();
+        loadIdentities();
       } else {
-        setSavedIdentities([]);
+        setIdentities([]);
       }
     });
 
     return () => unsubscribe();
   }, []);
 
-  const loadRecentIdentities = async () => {
+  const loadIdentities = async () => {
     if (!auth.currentUser) {
-      setSavedIdentities([]);
+      setIdentities([]);
       return;
     }
 
@@ -120,11 +120,10 @@ function App() {
       const q = query(
         identitiesRef,
         where('userId', '==', auth.currentUser.uid),
-        orderBy('createdAt', 'desc'),
-        limit(10)
+        orderBy('createdAt', 'desc')
       );
       const querySnapshot = await getDocs(q);
-      const identities = querySnapshot.docs.map(doc => {
+      const loadedIdentities = querySnapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -132,43 +131,10 @@ function App() {
           createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(data.createdAt)
         };
       }) as SavedIdentity[];
-      setSavedIdentities(identities);
+      setIdentities(loadedIdentities);
     } catch (error) {
       console.error('Error loading identities:', error);
       toast.error('Erreur lors du chargement des identités');
-    }
-  };
-
-  const searchIdentities = async () => {
-    if (!auth.currentUser) return;
-    
-    if (!searchTerm.trim()) {
-      await loadRecentIdentities();
-      return;
-    }
-
-    try {
-      const identitiesRef = collection(db, 'identities');
-      const q = query(
-        identitiesRef,
-        where('userId', '==', auth.currentUser.uid),
-        where('name', '>=', searchTerm),
-        where('name', '<=', searchTerm + '\uf8ff'),
-        limit(10)
-      );
-      const querySnapshot = await getDocs(q);
-      const identities = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(data.createdAt)
-        };
-      }) as SavedIdentity[];
-      setSavedIdentities(identities);
-    } catch (error) {
-      console.error('Error searching identities:', error);
-      toast.error('Erreur lors de la recherche');
     }
   };
 
@@ -196,7 +162,7 @@ function App() {
       setShowSaveDialog(false);
       setSaveName('');
       toast.success('Identité sauvegardée !');
-      await loadRecentIdentities();
+      await loadIdentities();
     } catch (error) {
       console.error('Error saving identity:', error);
       toast.error('Erreur lors de la sauvegarde');
@@ -207,7 +173,7 @@ function App() {
     try {
       await deleteDoc(doc(db, 'identities', id));
       toast.success('Identité supprimée !');
-      await loadRecentIdentities();
+      await loadIdentities();
     } catch (error) {
       console.error('Error deleting identity:', error);
       toast.error('Erreur lors de la suppression');
@@ -226,7 +192,7 @@ function App() {
       setShowAuthDialog(false);
       setEmail('');
       setPassword('');
-      await loadRecentIdentities();
+      await loadIdentities();
     } catch (error) {
       console.error('Auth error:', error);
       toast.error(isSignUp ? 'Erreur lors de la création du compte' : 'Erreur lors de la connexion');
@@ -237,7 +203,7 @@ function App() {
     try {
       await signOut(auth);
       toast.success('Déconnexion réussie !');
-      setSavedIdentities([]);
+      setIdentities([]);
     } catch (error) {
       console.error('Sign out error:', error);
       toast.error('Erreur lors de la déconnexion');
@@ -267,6 +233,18 @@ function App() {
       setShowSidebar(false);
     }
   };
+
+  const filteredIdentities = identities.filter(identity => {
+    if (searchTerm.trim() === '') return true;
+    
+    const search = searchTerm.toLowerCase();
+    return (
+      identity.name.toLowerCase().includes(search) ||
+      identity.gaming.username.toLowerCase().includes(search) ||
+      identity.real.firstName.toLowerCase().includes(search) ||
+      identity.real.lastName.toLowerCase().includes(search)
+    );
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-300/90 via-indigo-300/90 to-purple-400/90 animate-gradient relative overflow-hidden">
@@ -366,18 +344,12 @@ function App() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Rechercher une identité..."
-                className="flex-1 p-4 rounded-l bg-white/10 backdrop-blur-sm text-white border border-white/20"
+                className="w-full p-4 rounded bg-white/10 backdrop-blur-sm text-white border border-white/20"
               />
-              <button
-                onClick={searchIdentities}
-                className="px-6 py-4 bg-white/20 text-white rounded-r hover:bg-white/30 transition-colors"
-              >
-                <Search size={24} />
-              </button>
             </div>
 
             <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-16rem)]">
-              {savedIdentities.map((saved) => (
+              {filteredIdentities.map((saved) => (
                 <div
                   key={saved.id}
                   className="bg-white/10 p-4 rounded-xl border border-white/20 hover:bg-white/20 transition-colors"
