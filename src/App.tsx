@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Copy, RefreshCw, Save, Search, ChevronRight, ChevronLeft, Trash2, LogIn, LogOut, ChevronDown, ChevronUp } from 'lucide-react';
-import { collection, addDoc, query, orderBy, getDocs, where, deleteDoc, doc, Timestamp, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, getDocs, where, deleteDoc, doc, Timestamp, updateDoc, writeBatch } from 'firebase/firestore';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
 import toast, { Toaster } from 'react-hot-toast';
@@ -27,6 +27,12 @@ interface SavedIdentity {
     lastName: string;
   };
   createdAt: Date;
+  userId: string;
+}
+
+interface Category {
+  id: string;
+  name: string;
   userId: string;
 }
 
@@ -100,22 +106,50 @@ function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [categories, setCategories] = useState<string[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [newCategory, setNewCategory] = useState('');
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  const [showDeleteCategoryDialog, setShowDeleteCategoryDialog] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
+  const [targetCategory, setTargetCategory] = useState<string>('');
+  const [deleteOption, setDeleteOption] = useState<'delete' | 'move'>('delete');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         loadIdentities();
+        loadCategories();
       } else {
         setIdentities([]);
+        setCategories([]);
       }
     });
 
     return () => unsubscribe();
   }, []);
+
+  const loadCategories = async () => {
+    if (!auth.currentUser) return;
+
+    try {
+      const categoriesRef = collection(db, 'categories');
+      const q = query(
+        categoriesRef,
+        where('userId', '==', auth.currentUser.uid),
+        orderBy('name')
+      );
+      const querySnapshot = await getDocs(q);
+      const loadedCategories = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Category[];
+      setCategories(loadedCategories);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+      toast.error('Erreur lors du chargement des catégories');
+    }
+  };
 
   const loadIdentities = async () => {
     if (!auth.currentUser) {
@@ -140,10 +174,6 @@ function App() {
         };
       }) as SavedIdentity[];
       setIdentities(loadedIdentities);
-
-      // Extract unique categories from loaded identities
-      const uniqueCategories = Array.from(new Set(loadedIdentities.map(identity => identity.category).filter(Boolean)));
-      setCategories(uniqueCategories);
     } catch (error) {
       console.error('Error loading identities:', error);
       toast.error('Erreur lors du chargement des identités');
@@ -183,35 +213,64 @@ function App() {
     }
   };
 
-  const addNewCategory = () => {
-    if (newCategory.trim() && !categories.includes(newCategory.trim())) {
-      setCategories([...categories, newCategory.trim()]);
-      setSelectedCategory(newCategory.trim());
-      localStorage.setItem('lastCategory', newCategory.trim());
-      setNewCategory('');
-      setShowNewCategoryInput(false);
+  const addNewCategory = async () => {
+    if (!auth.currentUser) {
+      toast.error('Veuillez vous connecter pour créer une catégorie');
+      return;
+    }
+
+    if (newCategory.trim() && !categories.find(cat => cat.name === newCategory.trim())) {
+      try {
+        const categoriesRef = collection(db, 'categories');
+        await addDoc(categoriesRef, {
+          name: newCategory.trim(),
+          userId: auth.currentUser.uid
+        });
+        
+        setSelectedCategory(newCategory.trim());
+        localStorage.setItem('lastCategory', newCategory.trim());
+        setNewCategory('');
+        setShowNewCategoryInput(false);
+        await loadCategories();
+        toast.success('Catégorie créée !');
+      } catch (error) {
+        console.error('Error creating category:', error);
+        toast.error('Erreur lors de la création de la catégorie');
+      }
     }
   };
 
-  const deleteCategory = async (categoryToDelete: string) => {
+  const handleDeleteCategory = async () => {
+    if (!categoryToDelete || !auth.currentUser) return;
+
     try {
-      // Update all identities in this category to have no category
-      const identitiesInCategory = identities.filter(identity => identity.category === categoryToDelete);
+      const batch = writeBatch(db);
+      
+      // Delete the category
+      const categoryRef = doc(db, 'categories', categoryToDelete);
+      batch.delete(categoryRef);
+
+      // Handle identities based on selected option
+      const identitiesInCategory = identities.filter(identity => identity.category === categories.find(cat => cat.id === categoryToDelete)?.name);
+      
       for (const identity of identitiesInCategory) {
-        await updateDoc(doc(db, 'identities', identity.id), {
-          category: ''
-        });
+        const identityRef = doc(db, 'identities', identity.id);
+        if (deleteOption === 'delete') {
+          batch.delete(identityRef);
+        } else if (deleteOption === 'move') {
+          batch.update(identityRef, { category: targetCategory });
+        }
       }
 
-      // Remove category from local state
-      setCategories(categories.filter(cat => cat !== categoryToDelete));
-      if (selectedCategory === categoryToDelete) {
-        setSelectedCategory('');
-        localStorage.setItem('lastCategory', '');
-      }
+      await batch.commit();
 
+      setShowDeleteCategoryDialog(false);
+      setCategoryToDelete(null);
+      setTargetCategory('');
+      setDeleteOption('delete');
+      
+      await Promise.all([loadCategories(), loadIdentities()]);
       toast.success('Catégorie supprimée !');
-      await loadIdentities();
     } catch (error) {
       console.error('Error deleting category:', error);
       toast.error('Erreur lors de la suppression de la catégorie');
@@ -241,7 +300,7 @@ function App() {
       setShowAuthDialog(false);
       setEmail('');
       setPassword('');
-      await loadIdentities();
+      await Promise.all([loadIdentities(), loadCategories()]);
     } catch (error) {
       console.error('Auth error:', error);
       toast.error(isSignUp ? 'Erreur lors de la création du compte' : 'Erreur lors de la connexion');
@@ -253,6 +312,7 @@ function App() {
       await signOut(auth);
       toast.success('Déconnexion réussie !');
       setIdentities([]);
+      setCategories([]);
     } catch (error) {
       console.error('Sign out error:', error);
       toast.error('Erreur lors de la déconnexion');
@@ -430,7 +490,11 @@ function App() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteCategory(category);
+                            const categoryObj = categories.find(cat => cat.name === category);
+                            if (categoryObj) {
+                              setCategoryToDelete(categoryObj.id);
+                              setShowDeleteCategoryDialog(true);
+                            }
                           }}
                           className="p-1 hover:bg-white/20 text-white rounded-lg transition-colors"
                           title="Supprimer la catégorie"
@@ -495,15 +559,15 @@ function App() {
               <div className="flex gap-2 flex-wrap">
                 {categories.map((cat) => (
                   <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(cat)}
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.name)}
                     className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                      selectedCategory === cat
+                      selectedCategory === cat.name
                         ? 'bg-white/30 text-white'
                         : 'bg-white/10 text-white/80 hover:bg-white/20'
                     }`}
                   >
-                    {cat}
+                    {cat.name}
                   </button>
                 ))}
                 {!showNewCategoryInput && (
@@ -566,6 +630,83 @@ function App() {
                 className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl transition-colors text-sm"
               >
                 Sauvegarder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteCategoryDialog && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-20 p-4">
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-3xl shadow-2xl border border-white/20 max-w-md w-full">
+            <h3 className="text-xl font-bold text-white mb-4">Supprimer la catégorie</h3>
+            
+            <div className="mb-6">
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => setDeleteOption('delete')}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    deleteOption === 'delete'
+                      ? 'bg-white/30 text-white'
+                      : 'bg-white/10 text-white/80 hover:bg-white/20'
+                  }`}
+                >
+                  Supprimer les identités
+                </button>
+                <button
+                  onClick={() => setDeleteOption('move')}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    deleteOption === 'move'
+                      ? 'bg-white/30 text-white'
+                      : 'bg-white/10 text-white/80 hover:bg-white/20'
+                  }`}
+                >
+                  Déplacer les identités
+                </button>
+              </div>
+
+              {deleteOption === 'move' && (
+                <div className="mb-4">
+                  <label className="block text-white/80 font-medium mb-2">
+                    Déplacer vers la catégorie
+                  </label>
+                  <select
+                    value={targetCategory}
+                
+                    onChange={(e) => setTargetCategory(e.target.value)}
+                    className="w-full p-3 rounded bg-white/10 backdrop-blur-sm text-white border border-white/20 text-sm"
+                  >
+                    <option value="">Sans catégorie</option>
+                    {categories
+                      .filter(cat => cat.id !== categoryToDelete)
+                      .map(cat => (
+                        <option key={cat.id} value={cat.name}>
+                          {cat.name}
+                        </option>
+                      ))
+                    }
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-4 justify-end">
+              <button
+                onClick={() => {
+                  setShowDeleteCategoryDialog(false);
+                  setCategoryToDelete(null);
+                  setTargetCategory('');
+                  setDeleteOption('delete');
+                }}
+                className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors text-sm"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleDeleteCategory}
+                className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl transition-colors text-sm"
+              >
+                Confirmer
               </button>
             </div>
           </div>
