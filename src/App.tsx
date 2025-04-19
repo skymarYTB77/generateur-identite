@@ -672,7 +672,6 @@ function App() {
                   </label>
                   <select
                     value={targetCategory}
-                
                     onChange={(e) => setTargetCategory(e.target.value)}
                     className="w-full p-3 rounded bg-white/10 backdrop-blur-sm text-white border border-white/20 text-sm"
                   >
@@ -704,7 +703,7 @@ function App() {
               </button>
               <button
                 onClick={handleDeleteCategory}
-                className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl transition-colors text-sm"
+                className="px-4 py-2  bg-white/20 hover:bg-white/30 text-white rounded-xl transition-colors text-sm"
               >
                 Confirmer
               </button>
