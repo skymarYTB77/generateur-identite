@@ -144,7 +144,17 @@ function App() {
         id: doc.id,
         ...doc.data()
       })) as Category[];
-      setCategories(loadedCategories);
+
+      // Dédupliquer les catégories par nom
+      const uniqueCategories = loadedCategories.reduce((acc, current) => {
+        const existingCategory = acc.find(cat => cat.name === current.name);
+        if (!existingCategory) {
+          acc.push(current);
+        }
+        return acc;
+      }, [] as Category[]);
+
+      setCategories(uniqueCategories);
     } catch (error) {
       console.error('Error loading categories:', error);
       toast.error('Erreur lors du chargement des catégories');
@@ -219,24 +229,34 @@ function App() {
       return;
     }
 
-    if (newCategory.trim() && !categories.find(cat => cat.name === newCategory.trim())) {
-      try {
-        const categoriesRef = collection(db, 'categories');
-        await addDoc(categoriesRef, {
-          name: newCategory.trim(),
-          userId: auth.currentUser.uid
-        });
-        
-        setSelectedCategory(newCategory.trim());
-        localStorage.setItem('lastCategory', newCategory.trim());
-        setNewCategory('');
-        setShowNewCategoryInput(false);
-        await loadCategories();
-        toast.success('Catégorie créée !');
-      } catch (error) {
-        console.error('Error creating category:', error);
-        toast.error('Erreur lors de la création de la catégorie');
-      }
+    const trimmedCategory = newCategory.trim();
+    if (!trimmedCategory) {
+      toast.error('Le nom de la catégorie ne peut pas être vide');
+      return;
+    }
+
+    // Vérifier si la catégorie existe déjà
+    if (categories.some(cat => cat.name.toLowerCase() === trimmedCategory.toLowerCase())) {
+      toast.error('Cette catégorie existe déjà');
+      return;
+    }
+
+    try {
+      const categoriesRef = collection(db, 'categories');
+      await addDoc(categoriesRef, {
+        name: trimmedCategory,
+        userId: auth.currentUser.uid
+      });
+      
+      setSelectedCategory(trimmedCategory);
+      localStorage.setItem('lastCategory', trimmedCategory);
+      setNewCategory('');
+      setShowNewCategoryInput(false);
+      await loadCategories();
+      toast.success('Catégorie créée !');
+    } catch (error) {
+      console.error('Error creating category:', error);
+      toast.error('Erreur lors de la création de la catégorie');
     }
   };
 
